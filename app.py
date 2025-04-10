@@ -2,8 +2,9 @@ import streamlit as st
 import os
 import zipfile
 import google.generativeai as genai
+import datetime
 
-# Setup Gemini
+# Gemini API setup
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 model = genai.GenerativeModel("gemini-pro")
 
@@ -37,101 +38,108 @@ if code_files:
     code = code_files[file_name]
     st.code(code, language=file_name.split(".")[-1])
 
-    # Chat Assistant tab
-    chat_tab, *other_tabs = st.tabs([
-        "💬 Chat Assistant", "🔍 Code Review", "🔧 Refactor", "🧪 Tests",
-        "📘 Docstrings", "🔐 Security", "🐞 Smells", "🌐 Translate", "🧠 Learning", "📄 Summary"
-    ])
+    # Tabs
+    tabs = st.tabs(["💬 Chat Assistant", "🧠 Prompt Templates", "📋 Paste & Ask", "🔧 Smart Actions", "📄 Other Tools"])
+    combined_code = "\n".join(f"--- {fname} ---\n{content}" for fname, content in code_files.items())
 
-    with chat_tab:
-        st.subheader("Chat with Gemini About Your Codebase")
+    # Initialize chat history
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
 
-        if "messages" not in st.session_state:
-            st.session_state.messages = []
-
-        # Combine all files into a single context
-        combined_code = ""
-        for fname, content in code_files.items():
-            combined_code += f"--- FILE: {fname} ---\n{content}\n"
-
-        # Display chat history
+    # Chat Assistant Tab
+    with tabs[0]:
+        st.subheader("Chat with Gemini about your codebase")
         for msg in st.session_state.messages:
-            role, content = msg["role"], msg["content"]
-            if role == "user":
-                st.markdown(f"🧑‍💻 **You:** {content}")
-            else:
-                st.markdown(f"🤖 **Gemini:** {content}")
+            st.markdown(f"**{'You' if msg['role'] == 'user' else 'Gemini'}:** {msg['content']}")
 
-        user_input = st.chat_input("Type your question about the codebase here...")
+        user_input = st.chat_input("Ask something about your code...")
         if user_input:
             st.session_state.messages.append({"role": "user", "content": user_input})
-            full_prompt = f"You are a helpful AI assistant. The user uploaded a multi-file codebase:\n\n{combined_code}\n\nThey asked:\n{user_input}"
+            full_prompt = f"You are a code assistant. The codebase includes multiple files:\n\n{combined_code}\n\nUser asked:\n{user_input}"
             gemini_response = model.generate_content(full_prompt).text
             st.session_state.messages.append({"role": "gemini", "content": gemini_response})
             st.experimental_rerun()
 
-    with other_tabs[0]:
-        st.subheader("Ask Gemini About the Code")
-        user_question = st.text_area("❓ Enter your question", key="qa")
-        if st.button("💬 Ask Gemini"):
-            response = model.generate_content(f"{user_question}\n\nCode:\n{code}")
-            st.success(response.text)
+    # Prompt Templates
+    with tabs[1]:
+        st.subheader("🎯 Prompt Templates")
+        template = st.selectbox("Choose a prompt", [
+            "Explain the selected file",
+            "Summarize this file",
+            "Identify bugs or risks",
+            "Suggest performance improvements",
+            "Convert to async (if applicable)",
+            "Suggest better naming conventions",
+        ])
+        if st.button("Run Template Prompt"):
+            prompt_map = {
+                "Explain the selected file": f"Explain this code:\n\n{code}",
+                "Summarize this file": f"Give a detailed summary of this file:\n\n{code}",
+                "Identify bugs or risks": f"Find bugs or logical errors in this code:\n\n{code}",
+                "Suggest performance improvements": f"Suggest performance improvements:\n\n{code}",
+                "Convert to async (if applicable)": f"Convert this code to async (if applicable):\n\n{code}",
+                "Suggest better naming conventions": f"Suggest better variable/function/class names for readability:\n\n{code}",
+            }
+            response = model.generate_content(prompt_map[template]).text
+            st.code(response)
+            st.download_button("💾 Download Response", data=response, file_name="gemini_response.txt")
 
-    with other_tabs[1]:
-        st.subheader("Refactor Code")
-        if st.button("🛠️ Refactor this code"):
-            prompt = f"Refactor this code for better performance and readability:\n\n{code}"
-            response = model.generate_content(prompt)
-            st.code(response.text, language=file_name.split(".")[-1])
+    # Paste & Ask
+    with tabs[2]:
+        st.subheader("📝 Paste your code snippet below")
+        pasted_code = st.text_area("Paste any code (Python, Java, etc.)")
+        pasted_prompt = st.text_input("What do you want Gemini to do with it?")
+        if st.button("💬 Run on Pasted Code"):
+            full_prompt = f"Here is some code:\n{pasted_code}\n\nInstruction: {pasted_prompt}"
+            response = model.generate_content(full_prompt).text
+            st.code(response)
+            st.download_button("💾 Download Gemini's Response", response, file_name="code_assistant_reply.txt")
 
-    with other_tabs[2]:
-        st.subheader("Generate Unit Tests")
-        if st.button("🧪 Generate Tests"):
-            prompt = f"Write unit tests for the following code:\n\n{code}"
-            response = model.generate_content(prompt)
-            st.code(response.text)
+    # Smart Actions
+    with tabs[3]:
+        st.subheader("⚡ Smart Actions for selected file")
+        if st.button("📌 Explain Code"):
+            prompt = f"Explain the following code:\n\n{code}"
+            response = model.generate_content(prompt).text
+            st.success(response)
+        if st.button("🛠️ Suggest Improvements"):
+            prompt = f"Suggest improvements for this code:\n\n{code}"
+            response = model.generate_content(prompt).text
+            st.code(response)
+        if st.button("🐛 Find Bugs"):
+            prompt = f"Detect bugs or logical issues in this code:\n\n{code}"
+            response = model.generate_content(prompt).text
+            st.warning(response)
+        if st.button("📋 Show Time & Space Complexity"):
+            prompt = f"Analyze the time and space complexity of this code:\n\n{code}"
+            response = model.generate_content(prompt).text
+            st.info(response)
 
-    with other_tabs[3]:
-        st.subheader("Add Docstrings and Comments")
-        if st.button("📘 Add Docstrings"):
-            prompt = f"Add Python-style docstrings and inline comments to the following code:\n\n{code}"
-            response = model.generate_content(prompt)
-            st.code(response.text)
+    # Other Tools (refactor, test gen, smells, translate)
+    with tabs[4]:
+        sub_tabs = st.tabs(["Refactor", "Generate Tests", "Docstrings", "Smells", "Translate"])
+        with sub_tabs[0]:
+            if st.button("🔧 Refactor"):
+                response = model.generate_content(f"Refactor this code:\n\n{code}").text
+                st.code(response)
+        with sub_tabs[1]:
+            if st.button("🧪 Generate Tests"):
+                response = model.generate_content(f"Write unit tests for:\n\n{code}").text
+                st.code(response)
+        with sub_tabs[2]:
+            if st.button("📘 Add Docstrings"):
+                response = model.generate_content(f"Add docstrings and inline comments:\n\n{code}").text
+                st.code(response)
+        with sub_tabs[3]:
+            if st.button("🐞 Code Smells"):
+                response = model.generate_content(f"Identify code smells in:\n\n{code}").text
+                st.warning(response)
+        with sub_tabs[4]:
+            target = st.selectbox("Translate to:", ["Java", "Python", "C++", "JavaScript"])
+            if st.button("🌍 Translate"):
+                prompt = f"Translate this code to {target}:\n\n{code}"
+                response = model.generate_content(prompt).text
+                st.code(response)
 
-    with other_tabs[4]:
-        st.subheader("Security Audit")
-        if st.button("🔐 Check for Vulnerabilities"):
-            prompt = f"Analyze this code and highlight any security vulnerabilities or risks:\n\n{code}"
-            response = model.generate_content(prompt)
-            st.warning(response.text)
-
-    with other_tabs[5]:
-        st.subheader("Code Smell Detection")
-        if st.button("🐞 Find Code Smells"):
-            prompt = f"Review this code for code smells, bad practices, and areas to improve:\n\n{code}"
-            response = model.generate_content(prompt)
-            st.info(response.text)
-
-    with other_tabs[6]:
-        st.subheader("Translate Code to Another Language")
-        target_lang = st.selectbox("Translate to:", ["Java", "Python", "C++", "JavaScript"])
-        if st.button("🌐 Translate Code"):
-            prompt = f"Translate this code to {target_lang}:\n\n{code}"
-            response = model.generate_content(prompt)
-            st.code(response.text, language=target_lang.lower())
-
-    with other_tabs[7]:
-        st.subheader("Learning Suggestions")
-        if st.button("🧠 Get Learning Tips"):
-            prompt = f"Suggest learning resources and improvements for a developer who wrote this code:\n\n{code}"
-            response = model.generate_content(prompt)
-            st.success(response.text)
-
-    with other_tabs[8]:
-        st.subheader("Project/File Summary")
-        if st.button("📄 Summarize this file"):
-            prompt = f"Summarize what this code does and how it works:\n\n{code}"
-            response = model.generate_content(prompt)
-            st.markdown(response.text)
 else:
     st.info("Please upload a .zip file or code file to get started.")
